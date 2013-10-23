@@ -9,8 +9,8 @@ exports = module.exports = function SuperTestOAuthSigner(options) {
         version: '1.0',
         signatureMethod: 'HMAC-SHA1'
     });
-    if (!options.consumerKey || !options.consumerSecret || !options.accessKey || !options.accessSecret) {
-        throw new Error('You must supply an options object with consumerKey: consumerSecret: accessKey: accessSecret:');
+    if (!options.consumerKey || !options.consumerSecret) {
+        throw new Error('You must supply an options object with consumerKey and consumerSecret');
     }
     var oauth = new OAuth(
         null,
@@ -22,10 +22,13 @@ exports = module.exports = function SuperTestOAuthSigner(options) {
         options.signatureMethod
     );
 
-    function sign(url, method, data) {
+    function sign(url, method, data, key, secret) {
+        key = key || options.accessKey;
+        secret = secret || options.accessSecret;
+
         method = method.toUpperCase();
         var params = oauth._prepareParameters(
-            options.accessKey, options.accessSecret, method, url, data);
+            key, secret, method, url, data);
 
         var header = oauth._isEcho ? 'X-Verify-Credentials-Authorization' : 'Authorization' ,
             signature = oauth._buildAuthorizationHeaders(params);
@@ -33,12 +36,12 @@ exports = module.exports = function SuperTestOAuthSigner(options) {
         return {header: header, signature: signature};
     }
 
-    function oauthGet(url) {
-        return sign(url, 'GET', {});
+    function oauthGet(url, data, key, secret) {
+        return sign(url, 'GET', data, key, secret);
     }
 
-    function oauthPost(url, data) {
-        return sign(url, 'POST', data);
+    function oauthPost(url, data, key, secret) {
+        return sign(url, 'POST', data, key, secret);
     }
 
     /**
@@ -49,16 +52,54 @@ exports = module.exports = function SuperTestOAuthSigner(options) {
         var originalGet = wrapped.get;
         var originalPost = wrapped.post;
 
-        wrapped.get = function (url) {
+        wrapped.get = function (url, data, token, secret) {
             var gotten = originalGet(url);
-            var oauthSig = oauthGet(gotten.url);
+            var oauthSig = oauthGet(gotten.url, data, token, secret);
             return gotten.set(oauthSig.header, oauthSig.signature);
         };
 
-        wrapped.post = function(url, data){
-            var posted = originalPost(url, data);
-            var oauthSig = oauthPost(url, data);
+        wrapped.post = function(url, data, token, secret){
+            var posted = originalPost(url);
+            var oauthSig = oauthPost(posted.url, data, token, secret);
             return posted.set(oauthSig.header, oauthSig.signature);
+        };
+
+        /**
+         * 01 - Request Token.
+         * Retrieve requesttoken from oauth server.
+         * @param url
+         * @param data {oauth_callback:'yourcallback'}
+         */
+        wrapped.requestToken = function(url, data){
+            return wrapped.post(url, data);
+        };
+
+        /**
+         * 02 - Authorize
+         * Authorize a request token.
+         * @param url
+         * @param token
+         * @param secret
+         * @param scope
+         */
+        wrapped.authorize = function (url, token, scope){
+            url += '?';
+            if(scope){
+                url += 'scope=' + scope + '&';
+            }
+            url += 'oauth_token=' + token;
+            return wrapped.get(url);
+        };
+
+        /**
+         * 04 - Access Token
+         * @param url
+         * @param token
+         * @param secret
+         * @param verifier
+         */
+        wrapped.accessToken = function(url, token, secret, verifier){
+            return wrapped.post(url, {oauth_verifier:verifier}, token, secret);
         };
 
         return wrapped;
