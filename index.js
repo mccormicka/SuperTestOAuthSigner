@@ -44,6 +44,10 @@ exports = module.exports = function SuperTestOAuthSigner(options) {
         return sign(url, 'POST', data, key, secret);
     }
 
+    function oauthDel(url, data, key, secret){
+        return sign(url, 'DELETE', data, key, secret);
+    }
+
     /**
      * Wrap supertest get/post methods with OAuth Headers.
      */
@@ -51,6 +55,7 @@ exports = module.exports = function SuperTestOAuthSigner(options) {
         var wrapped = request(express);
         var originalGet = wrapped.get;
         var originalPost = wrapped.post;
+        var originalDelete = wrapped.del;
 
         wrapped.get = function (url, data, token, secret) {
             var gotten = originalGet(url);
@@ -63,6 +68,13 @@ exports = module.exports = function SuperTestOAuthSigner(options) {
             var oauthSig = oauthPost(posted.url, data, token, secret);
             return posted.set(oauthSig.header, oauthSig.signature);
         };
+
+        wrapped.del = function(url, token, secret){
+            var deleted = originalDelete(url);
+            var oauthSig = oauthDel(deleted.url, {}, token, secret);
+            return deleted.set(oauthSig.header, oauthSig.signature);
+        };
+
 
         /**
          * 01 - Request Token.
